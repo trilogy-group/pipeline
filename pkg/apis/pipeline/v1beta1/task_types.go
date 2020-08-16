@@ -134,6 +134,14 @@ type Sidecar struct {
 	//
 	// If Script is not empty, the Step cannot have an Command or Args.
 	Script string `json:"script,omitempty"`
+
+	// WaitForTermination if set will disable the automatic force termination of sidecars. Your sidecar will run as
+	// long as it needs without Tekton interrupting it. Caution: If your sidecar does not know when/how to terminate
+	// by itself, your pipeline may hang till the pipeline timeout without showing proper status even though all the
+	// steps in your pipeline are completed.
+	//
+	// +optional
+	WaitForTermination bool `json:"waitForTermination,omitempty,default:false"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

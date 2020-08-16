@@ -17,8 +17,10 @@ limitations under the License.
 package pod
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"knative.dev/pkg/logging"
 	"path/filepath"
 	"strings"
 
@@ -182,27 +184,27 @@ func UpdateReady(kubeclient kubernetes.Interface, pod corev1.Pod) error {
 
 // StopSidecars updates sidecar containers in the Pod to a nop image, which
 // exits successfully immediately.
-func StopSidecars(nopImage string, kubeclient kubernetes.Interface, pod corev1.Pod) error {
+func StopSidecars(nopImage string, kubeclient kubernetes.Interface, pod corev1.Pod, containers *[]corev1.Container) (error) {
+	logger := logging.FromContext(context.Background())
+	updated := false
 	newPod, err := kubeclient.CoreV1().Pods(pod.Namespace).Get(pod.Name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("error getting Pod %q when stopping sidecars: %w", pod.Name, err)
 	}
-
-	updated := false
 	if newPod.Status.Phase == corev1.PodRunning {
 		for _, s := range newPod.Status.ContainerStatuses {
-			// Stop any running container that isn't a step.
-			// An injected sidecar container might not have the
-			// "sidecar-" prefix, so we can't just look for that
-			// prefix.
-			if !IsContainerStep(s.Name) && s.State.Running != nil {
-				for j, c := range newPod.Spec.Containers {
-					if c.Name == s.Name && c.Image != nopImage {
-						updated = true
-						newPod.Spec.Containers[j].Image = nopImage
+			for _, containerItem := range *containers {
+				if s.Name == containerItem.Name && s.State.Running != nil {
+					for j, c := range newPod.Spec.Containers {
+						if c.Name == s.Name && c.Image != nopImage {
+							updated = true
+							logger.Infof("Attempting to terminate Sidecar container %s since it was not marked for exemption from force termination in pod using waitForTermination flag %s.", s.Name, newPod.Name)
+							newPod.Spec.Containers[j].Image = nopImage
+						}
 					}
 				}
 			}
+
 		}
 	}
 	if updated {
@@ -229,9 +231,9 @@ func IsSidecarStatusRunning(tr *v1beta1.TaskRun) bool {
 // represents a step.
 func IsContainerStep(name string) bool { return strings.HasPrefix(name, stepPrefix) }
 
-// isContainerSidecar returns true if the container name indicates that it
+// IsContainerSidecar returns true if the container name indicates that it
 // represents a sidecar.
-func isContainerSidecar(name string) bool { return strings.HasPrefix(name, sidecarPrefix) }
+func IsContainerSidecar(name string) bool { return strings.HasPrefix(name, sidecarPrefix) }
 
 // trimStepPrefix returns the container name, stripped of its step prefix.
 func trimStepPrefix(name string) string { return strings.TrimPrefix(name, stepPrefix) }

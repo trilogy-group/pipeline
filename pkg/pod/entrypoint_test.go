@@ -412,7 +412,8 @@ func TestStopSidecars(t *testing.T) {
 	}} {
 		t.Run(c.desc, func(t *testing.T) {
 			kubeclient := fakek8s.NewSimpleClientset(&c.pod)
-			if err := StopSidecars(nopImage, kubeclient, c.pod); err != nil {
+			stoppableContainers := append([]corev1.Container{}, sidecarContainer, injectedSidecar)
+			if err := StopSidecars(nopImage, kubeclient, c.pod, &stoppableContainers); err != nil {
 				t.Errorf("error stopping sidecar: %v", err)
 			}
 

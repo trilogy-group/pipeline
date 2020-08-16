@@ -185,7 +185,7 @@ func Step(image string, ops ...StepOp) TaskSpecOp {
 
 // Sidecar adds a sidecar container with the specified name and image to the TaskSpec.
 // Any number of Container modifier can be passed to transform it.
-func Sidecar(name, image string, ops ...ContainerOp) TaskSpecOp {
+func Sidecar(name, image string, waitForTermination bool, ops ...ContainerOp) TaskSpecOp {
 	return func(spec *v1beta1.TaskSpec) {
 		c := corev1.Container{
 			Name:  name,
@@ -194,7 +194,7 @@ func Sidecar(name, image string, ops ...ContainerOp) TaskSpecOp {
 		for _, op := range ops {
 			op(&c)
 		}
-		spec.Sidecars = append(spec.Sidecars, v1beta1.Sidecar{Container: c})
+		spec.Sidecars = append(spec.Sidecars, v1beta1.Sidecar{Container: c, WaitForTermination: waitForTermination})
 	}
 }
 
@@ -356,7 +356,7 @@ func TaskRunNamespace(namespace string) TaskRunOp {
 	}
 }
 
-// TaskRunStatus sets the TaskRunStatus to tshe TaskRun
+// TaskRunStatus sets the TaskRunStatus to the TaskRun
 func TaskRunStatus(ops ...TaskRunStatusOp) TaskRunOp {
 	return func(tr *v1beta1.TaskRun) {
 		status := &tr.Status
@@ -417,6 +417,17 @@ func SidecarState(ops ...SidecarStateOp) TaskRunStatusOp {
 			op(state)
 		}
 		s.Sidecars = append(s.Sidecars, *state)
+	}
+}
+
+// TaskSpec adds a TaskSpec to the TaskRunStatus.
+func TaskrunStatusTaskSpec(ops ...TaskSpecOp) TaskRunStatusOp {
+	return func(s *v1beta1.TaskRunStatus) {
+		spec := &v1beta1.TaskSpec{}
+		for _, op := range ops {
+			op(spec)
+		}
+		s.TaskSpec = spec
 	}
 }
 

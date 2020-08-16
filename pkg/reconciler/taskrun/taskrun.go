@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go.uber.org/zap"
 	"reflect"
 	"strings"
 	"time"
@@ -123,7 +124,10 @@ func (c *Reconciler) ReconcileKind(ctx context.Context, tr *v1beta1.TaskRun) pkg
 		c.timeoutHandler.Release(tr)
 		pod, err := c.KubeClientSet.CoreV1().Pods(tr.Namespace).Get(tr.Status.PodName, metav1.GetOptions{})
 		if err == nil {
-			err = podconvert.StopSidecars(c.Images.NopImage, c.KubeClientSet, *pod)
+			logger.Info("Stopping Sidecars that were not marked for exemption.")
+			sidecars := tr.Status.TaskSpec.Sidecars
+			stoppableContainers := getStoppableContainers(logger, pod, sidecars)
+			err := podconvert.StopSidecars(c.Images.NopImage, c.KubeClientSet, *pod, &stoppableContainers)
 			if err == nil {
 				// Check if any SidecarStatuses are still shown as Running after stopping
 				// Sidecars. If any Running, update SidecarStatuses based on Pod ContainerStatuses.
@@ -692,7 +696,7 @@ func updateStoppedSidecarStatus(ctx context.Context, pod *corev1.Pod, tr *v1beta
 		if !podconvert.IsContainerStep(s.Name) {
 			var sidecarState corev1.ContainerState
 			if s.LastTerminationState.Terminated != nil {
-				// Sidecar has successfully by terminated by nop image
+				// Sidecar has been terminated successfully by nop image
 				lastTerminatedState := s.LastTerminationState.Terminated
 				sidecarState = corev1.ContainerState{
 					Terminated: &corev1.ContainerStateTerminated{
@@ -748,6 +752,27 @@ func storeTaskSpec(ctx context.Context, tr *v1beta1.TaskRun, ts *v1beta1.TaskSpe
 		tr.Status.TaskSpec = ts
 	}
 	return nil
+}
+
+func getStoppableContainers(logger *zap.SugaredLogger, pod *corev1.Pod, sidecars []v1beta1.Sidecar) []corev1.Container {
+	stoppables := []corev1.Container{}
+	// Sidecars that does not have waitForTermination enabled should be terminated.
+	logger.Info("Gathering Tekton Sidecars...")
+	for _, sidecar := range sidecars {
+		if sidecar.WaitForTermination != true {
+			stoppables = append(stoppables, sidecar.Container)
+		}
+	}
+
+	logger.Info("Gathering injected Sidecars...")
+	// Anything that's not a sidecar or a step must be injected sidecar and thus should be marked for force termination.
+	for _, containerItem := range pod.Spec.Containers {
+		if podconvert.IsContainerStep(containerItem.Name) || podconvert.IsContainerSidecar(containerItem.Name) {
+			continue
+		}
+		stoppables = append(stoppables, containerItem)
+	}
+	return stoppables
 }
 
 // validateWorkspaceCompatibilityWithAffinityAssistant validates the TaskRun's compatibility
